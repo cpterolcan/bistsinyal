@@ -392,7 +392,7 @@ body:not(.dark) .cp-act-gray{background:#f0f3fa;border-color:#e0e3eb;color:#787b
     <div id="cp-main-chart"></div>
     <div id="cp-stoch-wrap">
       <div id="cp-stoch-label">
-        <span>Stoch RSI (3,3,14,14) · Haftalık</span>
+        <span style="color:#8E1599">RSI</span> <span style="color:#0094FF">K</span> <span style="color:#FF6A00">D</span> · Stoch RSI (3,3,14,14)
         <span class="sl-k">K: <b id="cp-lbl-k">—</b></span>
         <span class="sl-d">D: <b id="cp-lbl-d">—</b></span>
       </div>
@@ -572,7 +572,7 @@ function archiveToday(){
 // ════════════════════════════════════════════
 //  CHART (inline, no page redirect)
 // ════════════════════════════════════════════
-let cpMainChart,cpCandleSeries,cpEma50S,cpEma100S,cpStochChart,cpKLine,cpDLine,cpLvl20,cpLvl80;
+let cpMainChart,cpCandleSeries,cpEma50S,cpEma100S,cpStochChart,cpKLine,cpDLine,cpRsiLine,cpLvl20,cpLvl50,cpLvl80;
 let cpShowEma50=true,cpShowEma100=true,cpShowStoch=true,cpInterval='W';
 
 function openChart(ticker,price,k,d){
@@ -613,9 +613,11 @@ function cpInitCharts(){
   cpEma100S=cpMainChart.addLineSeries({color:'#8b5cf6',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
   const sel=document.getElementById('cp-stoch-chart');
   cpStochChart=LightweightCharts.createChart(sel,{...base,width:sel.clientWidth,height:sel.clientHeight,rightPriceScale:{...base.rightPriceScale,scaleMargins:{top:0.05,bottom:0.05}},timeScale:{...base.timeScale,visible:false}});
-  cpKLine=cpStochChart.addLineSeries({color:'#26c6da',lineWidth:2,priceLineVisible:false,lastValueVisible:true});
-  cpDLine=cpStochChart.addLineSeries({color:'#ff6d00',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true,lineStyle:LightweightCharts.LineStyle.Dashed});
+  cpKLine=cpStochChart.addLineSeries({color:'#0094FF',lineWidth:2,priceLineVisible:false,lastValueVisible:true});
+  cpDLine=cpStochChart.addLineSeries({color:'#FF6A00',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true,lineStyle:LightweightCharts.LineStyle.Dashed});
+  cpRsiLine=cpStochChart.addLineSeries({color:'#8E1599',lineWidth:1.5,priceLineVisible:false,lastValueVisible:true,lineStyle:LightweightCharts.LineStyle.Dashed});
   cpLvl20=cpStochChart.addLineSeries({color:dark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)',lineWidth:1,priceLineVisible:false,lastValueVisible:false,lineStyle:LightweightCharts.LineStyle.Dotted});
+  cpLvl50=cpStochChart.addLineSeries({color:dark?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.1)',lineWidth:1,priceLineVisible:false,lastValueVisible:false,lineStyle:LightweightCharts.LineStyle.Dotted});
   cpLvl80=cpStochChart.addLineSeries({color:dark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.15)',lineWidth:1,priceLineVisible:false,lastValueVisible:false,lineStyle:LightweightCharts.LineStyle.Dotted});
   cpMainChart.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(r&&cpShowStoch)cpStochChart.timeScale().setVisibleLogicalRange(r)});
   cpStochChart.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(r)cpMainChart.timeScale().setVisibleLogicalRange(r)});
@@ -637,67 +639,232 @@ function cpShowTip(bar){
   t.innerHTML=`<div style="font-weight:700;color:${up?'#26a69a':'#ef5350'};margin-bottom:3px">${state.chartStock?.ticker||''}</div><div style="color:#787b86">Açılış <b style="color:#d1d4dc">₺${bar.open?.toFixed(2)}</b></div><div style="color:#787b86">Yüksek <b style="color:#26a69a">₺${bar.high?.toFixed(2)}</b></div><div style="color:#787b86">Düşük <b style="color:#ef5350">₺${bar.low?.toFixed(2)}</b></div><div style="color:#787b86">Kapanış <b style="color:#d1d4dc">₺${bar.close?.toFixed(2)}</b></div>`;
 }
 
-function genCandles(base,count,intv){
-  const sec={W:604800,D:86400,240:14400,60:3600,15:900}[intv]||3600;
-  let time=Math.floor(Date.now()/1000)-count*sec,price=base*0.80;
+// ════════════════════════════════════════════
+//  INDICATOR CALCULATIONS (Pine Script v4 port)
+//  "2 RSI" by user — Stoch RSI + RSI
+// ════════════════════════════════════════════
+
+// EMA
+function calcEMA(candles, period) {
+  const k = 2/(period+1); let ema = null;
+  return candles.map(c => { ema = ema===null ? c.close : c.close*k + ema*(1-k); return {time:c.time, value:ema}; });
+}
+
+// RMA (Wilder's moving average) — Pine Script rma()
+function calcRMA(arr, period) {
+  const out = []; let rma = null;
+  for (let i=0; i<arr.length; i++) {
+    if (rma === null) { rma = arr[i]; } else { rma = (arr[i] + rma*(period-1)) / period; }
+    out.push(rma);
+  }
+  return out;
+}
+
+// SMA
+function sma(arr, period) {
+  const out = [];
+  for (let i=0; i<arr.length; i++) {
+    if (i < period-1) { out.push(null); continue; }
+    const sl = arr.slice(i-period+1, i+1);
+    out.push(sl.reduce((a,b)=>a+b,0)/period);
+  }
+  return out;
+}
+
+// RSI using RMA (matches Pine Script rsi())
+function calcRSI(closes, length) {
+  const changes = closes.map((v,i) => i===0 ? 0 : v - closes[i-1]);
+  const gains   = changes.map(c => Math.max(c,0));
+  const losses  = changes.map(c => Math.max(-c,0));
+  const avgGain = calcRMA(gains,  length);
+  const avgLoss = calcRMA(losses, length);
+  return avgGain.map((g,i) => {
+    const l = avgLoss[i];
+    if (l === 0) return 100;
+    if (g === 0) return 0;
+    return 100 - (100 / (1 + g/l));
+  });
+}
+
+// Stochastic of RSI — matches Pine stoch(rsi1,rsi1,rsi1,lengthStoch)
+function calcStochOfRSI(rsiArr, lengthStoch) {
+  const out = [];
+  for (let i=0; i<rsiArr.length; i++) {
+    if (i < lengthStoch-1) { out.push(null); continue; }
+    const sl = rsiArr.slice(i-lengthStoch+1, i+1).filter(v=>v!==null);
+    const mn = Math.min(...sl), mx = Math.max(...sl);
+    out.push(mx===mn ? 50 : (rsiArr[i]-mn)/(mx-mn)*100);
+  }
+  return out;
+}
+
+// Full "2 RSI" indicator — birebir Pine Script v4 portu
+function calc2RSI(candles, smoothK=3, smoothD=3, lengthRSI=14, lengthStoch=14) {
+  const closes = candles.map(c => c.close);
+  const times  = candles.map(c => c.time);
+
+  // Stoch RSI part
+  const rsi1    = calcRSI(closes, lengthRSI);
+  const rawK    = calcStochOfRSI(rsi1, lengthStoch);
+  const kSmooth = sma(rawK.map(v=>v===null?0:v), smoothK);
+  const dSmooth = sma(kSmooth.map(v=>v===null?0:v), smoothD);
+
+  // Normal RSI part (len=14, same closes)
+  const rsiNormal = calcRSI(closes, 14);
+
+  // Build series — skip nulls at start
+  const start = lengthRSI + lengthStoch + smoothK + smoothD;
+  const kSeries=[], dSeries=[], rsiSeries=[];
+  for (let i=start; i<candles.length; i++) {
+    if (kSmooth[i]!==null) kSeries.push({time:times[i], value:+kSmooth[i].toFixed(2)});
+    if (dSmooth[i]!==null) dSeries.push({time:times[i], value:+dSmooth[i].toFixed(2)});
+    if (rsiNormal[i]!==null) rsiSeries.push({time:times[i], value:+rsiNormal[i].toFixed(2)});
+  }
+  return { k:kSeries, d:dSeries, rsi:rsiSeries };
+}
+
+// Signal markers: K crosses above D while K < 20
+function findSignals(k, d) {
+  const dm={}; d.forEach(x=>dm[x.time]=x.value);
   const out=[];
-  for(let i=0;i<count;i++){
-    const d=new Date(time*1000),dow=d.getDay();
-    if((intv==='D'||intv==='W')&&(dow===0||dow===6)){time+=sec;continue}
-    const trend=Math.sin(i/count*Math.PI*2.5)*0.008,vol=0.010+Math.random()*0.016;
-    const dir=(Math.random()+trend)>0.5?1:-1,open=price,close=price*(1+dir*vol);
-    const wick=vol*0.4,high=Math.max(open,close)*(1+Math.random()*wick),low=Math.min(open,close)*(1-Math.random()*wick);
-    price=close;out.push({time,open,high,low,close});time+=sec;
-  }
-  if(out.length){const sc=base/out[out.length-1].close;out.forEach(c=>{c.open*=sc;c.high*=sc;c.low*=sc;c.close*=sc})}
-  return out;
-}
-function calcEMA(candles,period){
-  const k=2/(period+1);let ema=null;
-  return candles.map(c=>{ema=ema===null?c.close:c.close*k+ema*(1-k);return{time:c.time,value:ema}});
-}
-function calcStochRSI(candles,rsiLen=14,stochLen=14,sK=3,sD=3){
-  const cl=candles.map(c=>c.close),rsi=[];
-  for(let i=rsiLen;i<cl.length;i++){
-    const sl=cl.slice(i-rsiLen,i+1);let g=0,lo=0;
-    for(let j=1;j<sl.length;j++){const d=sl[j]-sl[j-1];if(d>0)g+=d;else lo-=d}
-    g/=rsiLen;lo/=rsiLen;rsi.push(lo===0?100:100-100/(1+g/lo));
-  }
-  const rawK=[];
-  for(let i=stochLen-1;i<rsi.length;i++){
-    const sl=rsi.slice(i-stochLen+1,i+1),mn=Math.min(...sl),mx=Math.max(...sl);
-    rawK.push(mx===mn?50:(rsi[i]-mn)/(mx-mn)*100);
-  }
-  const smK=[],smD=[];
-  for(let i=sK-1;i<rawK.length;i++) smK.push(rawK.slice(i-sK+1,i+1).reduce((a,b)=>a+b,0)/sK);
-  for(let i=sD-1;i<smK.length;i++) smD.push(smK.slice(i-sD+1,i+1).reduce((a,b)=>a+b,0)/sD);
-  const oK=candles.length-smK.length,oD=candles.length-smD.length;
-  return{k:smK.map((v,i)=>({time:candles[i+oK].time,value:Math.round(v*100)/100})),d:smD.map((v,i)=>({time:candles[i+oD].time,value:Math.round(v*100)/100}))};
-}
-function findSignals(k,d){
-  const dm={};d.forEach(x=>dm[x.time]=x.value);const out=[];
-  for(let i=1;i<k.length;i++){
-    const pk=k[i-1],ck=k[i],pd=dm[pk.time],cd=dm[ck.time];
-    if(pd!==undefined&&cd!==undefined&&pk.value<pd&&ck.value>=cd&&ck.value<20)
-      out.push({time:ck.time,position:'belowBar',color:'#26a69a',shape:'arrowUp',size:1.2,text:'▲'});
+  for (let i=1; i<k.length; i++) {
+    const pk=k[i-1], ck=k[i], pd=dm[pk.time], cd=dm[ck.time];
+    if (pd!==undefined && cd!==undefined && pk.value<pd && ck.value>=cd && ck.value<20)
+      out.push({time:ck.time, position:'belowBar', color:'#26a69a', shape:'arrowUp', size:1.5, text:'▲'});
   }
   return out;
 }
-function cpLoadData(intv){
-  if(!cpMainChart||!cpCandleSeries) return;
-  const cnt={W:80,D:150,240:200,60:300,15:400}[intv]||200;
-  const price=state.chartStock?.price||100;
-  const candles=genCandles(price,cnt,intv);
-  const ema50=calcEMA(candles,50),ema100=calcEMA(candles,100);
-  const {k,d}=calcStochRSI(candles);
-  cpCandleSeries.setData(candles);cpEma50S.setData(ema50);cpEma100S.setData(ema100);
-  cpKLine.setData(k);cpDLine.setData(d);
-  cpCandleSeries.setMarkers(findSignals(k,d));
-  if(k.length){cpLvl20.setData(k.map(p=>({time:p.time,value:20})));cpLvl80.setData(k.map(p=>({time:p.time,value:80})))}
-  const lk=k[k.length-1]?.value??0,ld=d[d.length-1]?.value??0;
-  document.getElementById('cp-lbl-k').textContent=lk.toFixed(1);
-  document.getElementById('cp-lbl-d').textContent=ld.toFixed(1);
-  cpMainChart.timeScale().fitContent();cpStochChart.timeScale().fitContent();
+
+// ── LOAD REAL DATA FROM BACKEND ───────────────
+async function cpLoadData(intv) {
+  if (!cpMainChart || !cpCandleSeries) return;
+  const ticker = state.chartStock?.ticker || 'THYAO';
+  const backendUrl = state.settings.backendUrl;
+
+  // Loading indicator
+  document.getElementById('cp-lbl-k').textContent = '...';
+  document.getElementById('cp-lbl-d').textContent = '...';
+
+  let candles = null;
+
+  // Yahoo Finance interval map
+  const yMap = {W:{yi:'1wk',range:'2y'}, D:{yi:'1d',range:'1y'}, 240:{yi:'1h',range:'60d'}, 60:{yi:'1h',range:'30d'}, 15:{yi:'15m',range:'5d'}};
+  const yCfg = yMap[intv] || yMap['W'];
+  const sym  = ticker + '.IS'; // BIST sembolü
+
+  // Try backend first (if set)
+  if (backendUrl) {
+    try {
+      const res = await fetch(`${backendUrl}/chart/${ticker}?interval=${intv}`, {signal: AbortSignal.timeout(8000)});
+      if (res.ok) { const data = await res.json(); if (data.candles?.length > 20) candles = data.candles; }
+    } catch(e) {}
+  }
+
+  // Try Yahoo Finance via CORS proxies (no backend needed)
+  if (!candles) {
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${yCfg.yi}&range=${yCfg.range}&includePrePost=false`;
+    const proxies = [
+      `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+      `https://proxy.cors.sh/${yahooUrl}`,
+    ];
+    for (const proxyUrl of proxies) {
+      try {
+        const res = await fetch(proxyUrl, {signal: AbortSignal.timeout(8000), headers:{'x-requested-with':'XMLHttpRequest'}});
+        if (!res.ok) continue;
+        const json = await res.json();
+        const result = json?.chart?.result?.[0];
+        if (!result) continue;
+        const ts = result.timestamp;
+        const q  = result.indicators?.quote?.[0];
+        const raw = ts.map((t,i) => ({
+          time:  t,
+          open:  q.open[i]  ? +q.open[i].toFixed(4)  : null,
+          high:  q.high[i]  ? +q.high[i].toFixed(4)  : null,
+          low:   q.low[i]   ? +q.low[i].toFixed(4)   : null,
+          close: q.close[i] ? +q.close[i].toFixed(4) : null,
+        })).filter(c => c.open && c.high && c.low && c.close);
+        if (raw.length > 20) { candles = raw; break; }
+      } catch(e) { continue; }
+    }
+  }
+
+  // Fallback: seed-based consistent demo
+  if (!candles) {
+    candles = genSeededCandles(state.chartStock?.price||100, intv, ticker);
+    document.getElementById('cp-lbl-k').title = 'Demo veri (gerçek veri alınamadı)';
+  }
+
+  // Calculate indicators
+  const ema50  = calcEMA(candles, 50);
+  const ema100 = calcEMA(candles, 100);
+  const { k, d, rsi } = calc2RSI(candles);
+  const signals = findSignals(k, d);
+
+  // Set chart data
+  cpCandleSeries.setData(candles);
+  cpEma50S.setData(ema50);
+  cpEma100S.setData(ema100);
+  cpKLine.setData(k);
+  cpDLine.setData(d);
+  if (cpRsiLine) cpRsiLine.setData(rsi);
+  cpCandleSeries.setMarkers(signals);
+
+  // Level lines
+  if (k.length) {
+    cpLvl20.setData(k.map(p=>({time:p.time, value:20})));
+    cpLvl80.setData(k.map(p=>({time:p.time, value:80})));
+    cpLvl50.setData(k.map(p=>({time:p.time, value:50})));
+  }
+
+  // Update labels
+  const lk = k[k.length-1]?.value ?? 0;
+  const ld = d[d.length-1]?.value ?? 0;
+  document.getElementById('cp-lbl-k').textContent = lk.toFixed(1);
+  document.getElementById('cp-lbl-d').textContent = ld.toFixed(1);
+
+  cpMainChart.timeScale().fitContent();
+  cpStochChart.timeScale().fitContent();
+}
+
+// Seeded random — aynı ticker her zaman aynı grafiği gösterir
+function genSeededCandles(basePrice, intv, ticker) {
+  // Simple hash from ticker string for consistent seed
+  let seed = 0;
+  for (let i=0; i<ticker.length; i++) seed = (seed*31 + ticker.charCodeAt(i)) & 0xffffffff;
+  function rand() { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; }
+
+  const secMap = {W:604800,D:86400,240:14400,60:3600,15:900};
+  const sec    = secMap[intv] || 3600;
+  const counts = {W:100,D:180,240:200,60:300,15:400};
+  const count  = counts[intv] || 200;
+
+  let time  = Math.floor(Date.now()/1000) - count*sec;
+  let price = basePrice * 0.75;
+  const out = [];
+
+  for (let i=0; i<count; i++) {
+    const d = new Date(time*1000), dow = d.getDay();
+    if ((intv==='D'||intv==='W') && (dow===0||dow===6)) { time+=sec; continue; }
+    const trend = Math.sin(i/count * Math.PI * 3) * 0.006;
+    const vol   = 0.008 + rand()*0.018;
+    const dir   = (rand() + trend) > 0.5 ? 1 : -1;
+    const open  = price;
+    const close = price * (1 + dir * vol);
+    const wick  = vol * 0.35;
+    const high  = Math.max(open,close) * (1 + rand()*wick);
+    const low   = Math.min(open,close) * (1 - rand()*wick);
+    price = close;
+    out.push({time, open:+open.toFixed(4), high:+high.toFixed(4), low:+low.toFixed(4), close:+close.toFixed(4)});
+    time += sec;
+  }
+
+  if (out.length) {
+    const sc = basePrice / out[out.length-1].close;
+    out.forEach(c=>{c.open*=sc;c.high*=sc;c.low*=sc;c.close*=sc;
+      c.open=+c.open.toFixed(4);c.high=+c.high.toFixed(4);c.low=+c.low.toFixed(4);c.close=+c.close.toFixed(4)});
+  }
+  return out;
 }
 function cpChangeInterval(intv,el){
   cpInterval=intv;
