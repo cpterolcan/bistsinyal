@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/index.html << 'BIGEOF'
 <!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -235,7 +234,7 @@ body:not(.dark) .cp-act-gray{background:#f0f3fa;border-color:#e0e3eb;color:#787b
     <div class="header-top">
       <div>
         <div class="htitle"><span class="dot" id="status-dot"></span>BIST Sinyal Takip</div>
-        <div class="hsub">Stoch RSI (3,3,14,14) · EMA 50/100 · 1H</div>
+        <div class="hsub">Stoch RSI (3,3,14,14) · EMA 50/100 · Haftalık</div>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
         <span class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon" id="theme-icon"></i></span>
@@ -253,12 +252,12 @@ body:not(.dark) .cp-act-gray{background:#f0f3fa;border-color:#e0e3eb;color:#787b
   <div id="p-signals" class="page active">
     <div class="sec mt12">
       <div class="stat2">
-        <div class="scard"><div class="scard-label">Bugünkü sinyal</div><div class="scard-val g" id="signal-count">—</div><div class="scard-sub" id="signal-date">—</div></div>
+        <div class="scard"><div class="scard-label">Bugünkü sinyal</div><div class="scard-val g" id="signal-count">—</div><div class="scard-sub">Haftalık tarama</div></div>
         <div class="scard"><div class="scard-label">Ort. Stoch K</div><div class="scard-val a" id="avg-k">—</div><div class="scard-sub">aşırı sat bölgesi</div></div>
       </div>
       <div class="tag-row">
         <span class="stag green"><i class="fa-solid fa-arrow-trend-up"></i> K ↗ D kesişimi</span>
-        <span class="stag amber"><i class="fa-solid fa-clock"></i> 1 Saatlik</span>
+        <span class="stag amber"><i class="fa-solid fa-clock"></i> Haftalık</span>
         <span class="stag blue"><i class="fa-solid fa-arrow-down"></i> K &lt; 20</span>
       </div>
       <div class="filter-row">
@@ -377,11 +376,11 @@ body:not(.dark) .cp-act-gray{background:#f0f3fa;border-color:#e0e3eb;color:#787b
       <div class="cp-chip"><div class="cp-chip-label">Sinyal Gücü</div><div class="cp-chip-val cgreen" id="cp-str">—</div></div>
     </div>
     <div class="cp-itabs">
-      <div class="cp-itab" onclick="cpChangeInterval('15',this)">15D</div>
-      <div class="cp-itab" onclick="cpChangeInterval('60',this)">1S</div>
-      <div class="cp-itab" onclick="cpChangeInterval('240',this)">4S</div>
+      <div class="cp-itab" onclick="cpChangeInterval('15',this)">15dk</div>
+      <div class="cp-itab" onclick="cpChangeInterval('60',this)">1Sa</div>
+      <div class="cp-itab" onclick="cpChangeInterval('240',this)">4Sa</div>
       <div class="cp-itab" onclick="cpChangeInterval('D',this)">1G</div>
-      <div class="cp-itab active" onclick="cpChangeInterval('W',this)">1H</div>
+      <div class="cp-itab active" onclick="cpChangeInterval('W',this)">1Hft ✓</div>
     </div>
     <div class="cp-ind-row">
       <div class="cp-ind-pill p-ema50"  id="pill-ema50"  onclick="cpToggleInd('ema50')">EMA 50</div>
@@ -393,7 +392,7 @@ body:not(.dark) .cp-act-gray{background:#f0f3fa;border-color:#e0e3eb;color:#787b
     <div id="cp-main-chart"></div>
     <div id="cp-stoch-wrap">
       <div id="cp-stoch-label">
-        <span>Stoch RSI (3,3,14,14)</span>
+        <span>Stoch RSI (3,3,14,14) · Haftalık</span>
         <span class="sl-k">K: <b id="cp-lbl-k">—</b></span>
         <span class="sl-d">D: <b id="cp-lbl-d">—</b></span>
       </div>
@@ -499,7 +498,7 @@ function renderSignals(){
   else if(state.filter==='fin') list=list.filter(s=>['Finans','İletişim'].includes(s.sector));
   else if(state.filter==='ener') list=list.filter(s=>['Enerji','Mineraller'].includes(s.sector));
   document.getElementById('signal-count').textContent=state.signals.length;
-  document.getElementById('signal-date').textContent=todayStr();
+  // haftalık tarama
   const avgK=list.length?(list.reduce((a,s)=>a+s.k,0)/list.length).toFixed(1):'—';
   document.getElementById('avg-k').textContent=avgK;
   const c=document.getElementById('signal-list');
@@ -912,5 +911,3 @@ updateBadge();
 </script>
 </body>
 </html>
-BIGEOF
-echo "✅ $(wc -c < /mnt/user-data/outputs/index.html) bytes"
